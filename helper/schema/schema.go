@@ -637,8 +637,7 @@ func (m schemaMap) Validate(c *terraform.ResourceConfig) ([]string, []error) {
 }
 
 func (m schemaMap) ValidateDiag(c *terraform.ResourceConfig) diag.Diagnostics {
-	// TODO Pathing starts here
-	return m.validateObject("", m, c, nil)
+	return m.validateObject("", m, c, cty.Path{})
 }
 
 // InternalValidate validates the format of this schema. This should be called
@@ -1372,7 +1371,7 @@ func (m schemaMap) validate(
 		if err != nil {
 			return append(diags, &diag.Diagnostic{
 				Severity:      diag.Error,
-				Summary:       "Error loading default",
+				Summary:       "Loading Default",
 				Detail:        err.Error(),
 				AttributePath: path,
 			})
@@ -1386,7 +1385,7 @@ func (m schemaMap) validate(
 	if err != nil {
 		return append(diags, &diag.Diagnostic{
 			Severity:      diag.Error,
-			Summary:       "ExactlyOne error",
+			Summary:       "ExactlyOne",
 			Detail:        err.Error(),
 			AttributePath: path,
 		})
@@ -1396,7 +1395,7 @@ func (m schemaMap) validate(
 	if err != nil {
 		return append(diags, &diag.Diagnostic{
 			Severity:      diag.Error,
-			Summary:       "AtLeastOne error",
+			Summary:       "AtLeastOne",
 			Detail:        err.Error(),
 			AttributePath: path,
 		})
@@ -1443,7 +1442,7 @@ func (m schemaMap) validate(
 	if err != nil {
 		return append(diags, &diag.Diagnostic{
 			Severity:      diag.Error,
-			Summary:       "ConflictsWith error",
+			Summary:       "ConflictsWith",
 			Detail:        err.Error(),
 			AttributePath: path,
 		})
@@ -1640,6 +1639,7 @@ func (m schemaMap) validateList(
 
 	for i, raw := range raws {
 		key := fmt.Sprintf("%s.%d", k, i)
+		path = append(path, cty.IndexStep{Key: cty.NumberIntVal(int64(i))})
 
 		// Reify the key value from the ResourceConfig.
 		// If the list was computed we have all raw values, but some of these
@@ -1756,13 +1756,12 @@ func validateMapValues(k string, m map[string]interface{}, schema *Schema, path 
 	var diags diag.Diagnostics
 
 	for key, raw := range m {
-		// TODO construct path with k and key
 		valueType, err := getValueType(k, schema)
+		path = append(path, cty.GetAttrStep{Name: key})
 		if err != nil {
 			return append(diags, &diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       err.Error(),
-				Detail:        key, // I just referenced key to make the compiler happy
 				AttributePath: path,
 			})
 		}
@@ -1863,9 +1862,7 @@ func (m schemaMap) validateObject(
 		if k != "" {
 			key = fmt.Sprintf("%s.%s", k, subK)
 		}
-
-		diags = append(diags, m.validate(key, s, c, path)...)
-
+		diags = append(diags, m.validate(key, s, c, append(path, cty.GetAttrStep{Name: subK}))...)
 	}
 
 	// Detect any extra/unknown keys and report those as errors.
@@ -1878,7 +1875,7 @@ func (m schemaMap) validateObject(
 				diags = append(diags, &diag.Diagnostic{
 					Severity:      diag.Error,
 					Summary:       "Invalid or unknown key",
-					AttributePath: path,
+					AttributePath: append(path, cty.GetAttrStep{Name: subk}),
 				})
 			}
 		}
@@ -1910,13 +1907,13 @@ func (m schemaMap) validatePrimitive(
 	case reflect.Slice:
 		return append(diags, &diag.Diagnostic{
 			Severity:      diag.Error,
-			Summary:       "attribute must be a single value, not a list",
+			Summary:       "Attribute must be a single value, not a list",
 			AttributePath: path,
 		})
 	case reflect.Map:
 		return append(diags, &diag.Diagnostic{
 			Severity:      diag.Error,
-			Summary:       "attribute must be a single value, not a map",
+			Summary:       "Attribute must be a single value, not a map",
 			AttributePath: path,
 		})
 	default: // ok
@@ -1951,7 +1948,7 @@ func (m schemaMap) validatePrimitive(
 		} else {
 			return append(diags, &diag.Diagnostic{
 				Severity:      diag.Error,
-				Summary:       fmt.Sprintf("attribute must be a whole number, got %v", raw),
+				Summary:       fmt.Sprintf("Attribute must be a whole number, got %v", raw),
 				AttributePath: path,
 			})
 		}
@@ -1999,7 +1996,7 @@ func (m schemaMap) validateType(
 	case TypeMap:
 		diags = m.validateMap(k, raw, schema, c, path)
 	default:
-		diags = m.validatePrimitive(k, raw, schema, c, nil)
+		diags = m.validatePrimitive(k, raw, schema, c, path)
 	}
 
 	if schema.Deprecated != "" {
