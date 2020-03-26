@@ -189,7 +189,7 @@ func (s *GRPCProviderServer) PrepareProviderConfig(_ context.Context, req *proto
 
 	config := terraform.NewResourceConfigShimmed(configVal, schemaBlock)
 
-	resp.Diagnostics = convert.DiagsToProto(s.provider.ValidateDiag(config))
+	resp.Diagnostics = convert.AppendProtoDiag(resp.Diagnostics, s.provider.ValidateDiag(config))
 
 	preparedConfigMP, err := msgpack.Marshal(configVal, schemaBlock.ImpliedType())
 	if err != nil {
@@ -215,7 +215,7 @@ func (s *GRPCProviderServer) ValidateResourceTypeConfig(_ context.Context, req *
 
 	config := terraform.NewResourceConfigShimmed(configVal, schemaBlock)
 
-	resp.Diagnostics = convert.DiagsToProto(s.provider.ValidateResourceDiag(req.TypeName, config))
+	resp.Diagnostics = convert.AppendProtoDiag(resp.Diagnostics, s.provider.ValidateResourceDiag(req.TypeName, config))
 
 	return resp, nil
 }
@@ -239,7 +239,7 @@ func (s *GRPCProviderServer) ValidateDataSourceConfig(_ context.Context, req *pr
 
 	config := terraform.NewResourceConfigShimmed(configVal, schemaBlock)
 
-	resp.Diagnostics = convert.DiagsToProto(s.provider.ValidateDataSourceDiag(req.TypeName, config))
+	resp.Diagnostics = convert.AppendProtoDiag(resp.Diagnostics, s.provider.ValidateDataSourceDiag(req.TypeName, config))
 
 	return resp, nil
 }
@@ -902,10 +902,10 @@ func (s *GRPCProviderServer) ApplyResourceChange(ctx context.Context, req *proto
 	}
 
 	newInstanceState, err := res.Apply(ctx, priorState, diff, s.provider.Meta())
-	// we record the error here, but continue processing any returned state.
-	if err != nil {
-		resp.Diagnostics = convert.AppendProtoDiag(resp.Diagnostics, err)
-	}
+	// err could be an error or it could be diags. AppendProtoDiag will handle
+	// all the cases, if err is nil nothing is appended
+	resp.Diagnostics = convert.AppendProtoDiag(resp.Diagnostics, err)
+
 	newStateVal := cty.NullVal(schemaBlock.ImpliedType())
 
 	// Always return a null value for destroy.

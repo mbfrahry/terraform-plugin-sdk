@@ -1352,7 +1352,7 @@ func TestValidateNulls(t *testing.T) {
 	} {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			d := validateConfigNulls(tc.Cfg, nil)
-			diags := convert.ProtoToDiagnostics(d)
+			diags := convert.ProtoToDiags(d)
 			switch {
 			case tc.Err:
 				if !diags.HasErrors() {
@@ -1360,7 +1360,7 @@ func TestValidateNulls(t *testing.T) {
 				}
 			default:
 				if diags.HasErrors() {
-					t.Fatalf("unexpected error: %q", diags.Err())
+					t.Fatalf("unexpected error: %q", diags.Error())
 				}
 			}
 		})
