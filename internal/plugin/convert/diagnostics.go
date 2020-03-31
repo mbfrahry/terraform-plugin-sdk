@@ -18,16 +18,13 @@ func AppendProtoDiag(diags []*proto.Diagnostic, d interface{}) []*proto.Diagnost
 			Summary:   d.Error(),
 			Attribute: ap,
 		})
-	// need to check Diagnostics before error since it implements error
 	case diag.Diagnostics:
 		diags = append(diags, DiagsToProto(d)...)
 	case error:
-		if d != nil {
-			diags = append(diags, &proto.Diagnostic{
-				Severity: proto.Diagnostic_ERROR,
-				Summary:  d.Error(),
-			})
-		}
+		diags = append(diags, &proto.Diagnostic{
+			Severity: proto.Diagnostic_ERROR,
+			Summary:  d.Error(),
+		})
 	case string:
 		diags = append(diags, &proto.Diagnostic{
 			Severity: proto.Diagnostic_WARNING,

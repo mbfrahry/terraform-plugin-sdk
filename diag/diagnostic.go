@@ -1,6 +1,7 @@
 package diag
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/hashicorp/go-multierror"
@@ -28,6 +29,10 @@ func (diags Diagnostics) Append(i interface{}) Diagnostics {
 	return diags
 }
 
+func (diags Diagnostics) Err() error {
+	return errors.New(multierror.ListFormatFunc(diags.Errors()))
+}
+
 func (diags Diagnostics) HasErrors() bool {
 	for _, d := range diags {
 		if d.Severity == Error {
@@ -35,10 +40,6 @@ func (diags Diagnostics) HasErrors() bool {
 		}
 	}
 	return false
-}
-
-func (diags Diagnostics) Error() string {
-	return multierror.ListFormatFunc(diags.Errors())
 }
 
 func (diags Diagnostics) Errors() []error {
@@ -66,7 +67,6 @@ type Diagnostic struct {
 	Summary       string
 	Detail        string
 	AttributePath cty.Path
-	MapKey        string
 }
 
 func (d *Diagnostic) Error() string {

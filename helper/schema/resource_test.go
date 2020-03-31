@@ -11,6 +11,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/internal/configs/hcl2shim"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
@@ -935,7 +936,7 @@ func TestResourceInternalValidate(t *testing.T) {
 				Update:        Noop,
 				Delete:        Noop,
 				Exists:        func(*ResourceData, interface{}) (bool, error) { return false, nil },
-				ExistsContext: func(context.Context, *ResourceData, interface{}) (bool, error) { return false, nil },
+				ExistsContext: func(context.Context, *ResourceData, interface{}) (bool, diag.Diagnostics) { return false, nil },
 				Schema: map[string]*Schema{
 					"foo": {
 						Type:     TypeString,
@@ -1416,7 +1417,7 @@ func TestResource_ContextTimeout(t *testing.T) {
 	}
 
 	var deadlineSet bool
-	r.CreateContext = func(ctx context.Context, d *ResourceData, m interface{}) error {
+	r.CreateContext = func(ctx context.Context, d *ResourceData, m interface{}) diag.Diagnostics {
 		d.SetId("foo")
 		_, deadlineSet = ctx.Deadline()
 		return nil
