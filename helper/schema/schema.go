@@ -306,7 +306,7 @@ type SchemaValidateFunc func(interface{}, string) ([]string, []error)
 
 // SchemaValidateDiagFunc is a function used to validate a single field in the
 // schema and has Diagnostic support.
-type SchemaValidateDiagFunc func(interface{}, string) diag.Diagnostics
+type SchemaValidateDiagFunc func(interface{}, cty.Path) diag.Diagnostics
 
 func (s *Schema) GoString() string {
 	return fmt.Sprintf("*%#v", *s)
@@ -426,21 +426,21 @@ func (s *Schema) validateFunc(decoded interface{}, k string, path cty.Path) diag
 	var diags diag.Diagnostics
 
 	if s.ValidateDiagFunc != nil {
-		diags = s.ValidateDiagFunc(decoded, k)
-		for _, d := range diags {
-			d.AttributePath = append(path.Copy(), d.AttributePath...)
+		diags = s.ValidateDiagFunc(decoded, path)
+		for i := range diags {
+			diags[i].AttributePath = diag.JoinPath(path, diags[i].AttributePath)
 		}
 	} else if s.ValidateFunc != nil {
 		ws, es := s.ValidateFunc(decoded, k)
 		for _, w := range ws {
-			diags = diags.Append(&diag.Diagnostic{
+			diags = append(diags, diag.Diagnostic{
 				Severity:      diag.Warning,
 				Summary:       w,
 				AttributePath: path,
 			})
 		}
 		for _, e := range es {
-			diags = diags.Append(&diag.Diagnostic{
+			diags = append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       e.Error(),
 				AttributePath: path,
@@ -1383,7 +1383,7 @@ func (m schemaMap) validate(
 		var err error
 		raw, err = schema.DefaultFunc()
 		if err != nil {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       "Loading Default",
 				Detail:        err.Error(),
@@ -1397,7 +1397,7 @@ func (m schemaMap) validate(
 
 	err := validateExactlyOneAttribute(k, schema, c)
 	if err != nil {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "ExactlyOne",
 			Detail:        err.Error(),
@@ -1407,7 +1407,7 @@ func (m schemaMap) validate(
 
 	err = validateAtLeastOneAttribute(k, schema, c)
 	if err != nil {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "AtLeastOne",
 			Detail:        err.Error(),
@@ -1417,7 +1417,7 @@ func (m schemaMap) validate(
 
 	if !ok {
 		if schema.Required {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       "Required attribute is not set",
 				AttributePath: path,
@@ -1428,7 +1428,7 @@ func (m schemaMap) validate(
 
 	if !schema.Required && !schema.Optional {
 		// This is a computed-only field
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Computed attribute cannot be set",
 			AttributePath: path,
@@ -1442,7 +1442,7 @@ func (m schemaMap) validate(
 	// Required fields set via an interpolated value are accepted.
 	if !isWhollyKnown(raw) {
 		if schema.Deprecated != "" {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Warning,
 				Summary:       "Attribute is deprecated",
 				Detail:        schema.Deprecated,
@@ -1454,7 +1454,7 @@ func (m schemaMap) validate(
 
 	err = validateConflictingAttributes(k, schema, c)
 	if err != nil {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "ConflictsWith",
 			Detail:        err.Error(),
@@ -1610,7 +1610,7 @@ func (m schemaMap) validateList(
 	rawV := reflect.ValueOf(raw)
 
 	if rawV.Kind() != reflect.Slice {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Attribute should be a list",
 			AttributePath: path,
@@ -1628,7 +1628,7 @@ func (m schemaMap) validateList(
 
 	// Validate length
 	if schema.MaxItems > 0 && rawV.Len() > schema.MaxItems {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "List longer than MaxItems",
 			Detail:        fmt.Sprintf("Attribute supports %d item maximum, config has %d declared", schema.MaxItems, rawV.Len()),
@@ -1637,7 +1637,7 @@ func (m schemaMap) validateList(
 	}
 
 	if schema.MinItems > 0 && rawV.Len() < schema.MinItems {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "List shorter than MinItems",
 			Detail:        fmt.Sprintf("Attribute supports %d item minimum, config has %d declared", schema.MinItems, rawV.Len()),
@@ -1661,14 +1661,14 @@ func (m schemaMap) validateList(
 			raw = r
 		}
 
-		p := append(path.Copy(), cty.IndexStep{Key: cty.NumberIntVal(int64(i))})
+		p := append(path, cty.IndexStep{Key: cty.NumberIntVal(int64(i))})
 
 		switch t := schema.Elem.(type) {
 		case *Resource:
 			// This is a sub-resource
-			diags = diags.Append(m.validateObject(key, t.Schema, c, p))
+			diags = append(diags, m.validateObject(key, t.Schema, c, p)...)
 		case *Schema:
-			diags = diags.Append(m.validateType(key, raw, t, c, p))
+			diags = append(diags, m.validateType(key, raw, t, c, p)...)
 		}
 
 	}
@@ -1705,7 +1705,7 @@ func (m schemaMap) validateMap(
 		// be rejected.
 		reified, reifiedOk := c.Get(k)
 		if reifiedOk && raw == reified && !c.IsComputed(k) {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       "Attribute should be a map",
 				AttributePath: path,
@@ -1716,7 +1716,7 @@ func (m schemaMap) validateMap(
 	case reflect.Map:
 	case reflect.Slice:
 	default:
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Attribute should be a map",
 			AttributePath: path,
@@ -1726,8 +1726,8 @@ func (m schemaMap) validateMap(
 	// If it is not a slice, validate directly
 	if rawV.Kind() != reflect.Slice {
 		mapIface := rawV.Interface()
-		diags = diags.Append(validateMapValues(k, mapIface.(map[string]interface{}), schema, path))
-		if diags.HasErrors() {
+		diags = append(diags, validateMapValues(k, mapIface.(map[string]interface{}), schema, path)...)
+		if diags.HasError() {
 			return diags
 		}
 
@@ -1743,15 +1743,15 @@ func (m schemaMap) validateMap(
 	for _, raw := range raws {
 		v := reflect.ValueOf(raw)
 		if v.Kind() != reflect.Map {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       "Attribute should be a map",
 				AttributePath: path,
 			})
 		}
 		mapIface := v.Interface()
-		diags = diags.Append(validateMapValues(k, mapIface.(map[string]interface{}), schema, path))
-		if diags.HasErrors() {
+		diags = append(diags, validateMapValues(k, mapIface.(map[string]interface{}), schema, path)...)
+		if diags.HasError() {
 			return diags
 		}
 	}
@@ -1772,9 +1772,9 @@ func validateMapValues(k string, m map[string]interface{}, schema *Schema, path 
 
 	for key, raw := range m {
 		valueType, err := getValueType(k, schema)
-		p := append(path.Copy(), cty.IndexStep{Key: cty.StringVal(key)})
+		p := append(path, cty.IndexStep{Key: cty.StringVal(key)})
 		if err != nil {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       err.Error(),
 				AttributePath: p,
@@ -1785,7 +1785,7 @@ func validateMapValues(k string, m map[string]interface{}, schema *Schema, path 
 		case TypeBool:
 			var n bool
 			if err := mapstructure.WeakDecode(raw, &n); err != nil {
-				return diags.Append(&diag.Diagnostic{
+				return append(diags, diag.Diagnostic{
 					Severity:      diag.Error,
 					Summary:       err.Error(),
 					AttributePath: p,
@@ -1794,7 +1794,7 @@ func validateMapValues(k string, m map[string]interface{}, schema *Schema, path 
 		case TypeInt:
 			var n int
 			if err := mapstructure.WeakDecode(raw, &n); err != nil {
-				return diags.Append(&diag.Diagnostic{
+				return append(diags, diag.Diagnostic{
 					Severity:      diag.Error,
 					Summary:       err.Error(),
 					AttributePath: p,
@@ -1803,7 +1803,7 @@ func validateMapValues(k string, m map[string]interface{}, schema *Schema, path 
 		case TypeFloat:
 			var n float64
 			if err := mapstructure.WeakDecode(raw, &n); err != nil {
-				return diags.Append(&diag.Diagnostic{
+				return append(diags, diag.Diagnostic{
 					Severity:      diag.Error,
 					Summary:       err.Error(),
 					AttributePath: p,
@@ -1812,7 +1812,7 @@ func validateMapValues(k string, m map[string]interface{}, schema *Schema, path 
 		case TypeString:
 			var n string
 			if err := mapstructure.WeakDecode(raw, &n); err != nil {
-				return diags.Append(&diag.Diagnostic{
+				return append(diags, diag.Diagnostic{
 					Severity:      diag.Error,
 					Summary:       err.Error(),
 					AttributePath: p,
@@ -1864,7 +1864,7 @@ func (m schemaMap) validateObject(
 	}
 
 	if _, ok := raw.(map[string]interface{}); !ok && !c.IsComputed(k) {
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Expected Object Type",
 			Detail:        fmt.Sprintf("Expected object, got %s", reflect.ValueOf(raw).Kind()),
@@ -1877,7 +1877,7 @@ func (m schemaMap) validateObject(
 		if k != "" {
 			key = fmt.Sprintf("%s.%s", k, subK)
 		}
-		diags = diags.Append(m.validate(key, s, c, append(path.Copy(), cty.GetAttrStep{Name: subK})))
+		diags = append(diags, m.validate(key, s, c, append(path, cty.GetAttrStep{Name: subK}))...)
 	}
 
 	// Detect any extra/unknown keys and report those as errors.
@@ -1887,10 +1887,10 @@ func (m schemaMap) validateObject(
 				if subk == TimeoutsConfigKey {
 					continue
 				}
-				diags = diags.Append(&diag.Diagnostic{
+				diags = append(diags, diag.Diagnostic{
 					Severity:      diag.Error,
 					Summary:       "Invalid or unknown key",
-					AttributePath: append(path.Copy(), cty.GetAttrStep{Name: subk}),
+					AttributePath: append(path, cty.GetAttrStep{Name: subk}),
 				})
 			}
 		}
@@ -1920,13 +1920,13 @@ func (m schemaMap) validatePrimitive(
 	// doesn't contain Go type system terminology.
 	switch reflect.ValueOf(raw).Type().Kind() {
 	case reflect.Slice:
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Attribute must be a single value, not a list",
 			AttributePath: path,
 		})
 	case reflect.Map:
-		return diags.Append(&diag.Diagnostic{
+		return append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Attribute must be a single value, not a map",
 			AttributePath: path,
@@ -1946,7 +1946,7 @@ func (m schemaMap) validatePrimitive(
 		// Verify that we can parse this as the correct type
 		var n bool
 		if err := mapstructure.WeakDecode(raw, &n); err != nil {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       err.Error(),
 				AttributePath: path,
@@ -1961,7 +1961,7 @@ func (m schemaMap) validatePrimitive(
 		if v, ok := raw.(int); ok {
 			decoded = v
 		} else {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       fmt.Sprintf("Attribute must be a whole number, got %v", raw),
 				AttributePath: path,
@@ -1971,7 +1971,7 @@ func (m schemaMap) validatePrimitive(
 		// Verify that we can parse this as an int
 		var n float64
 		if err := mapstructure.WeakDecode(raw, &n); err != nil {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       err.Error(),
 				AttributePath: path,
@@ -1982,7 +1982,7 @@ func (m schemaMap) validatePrimitive(
 		// Verify that we can parse this as a string
 		var n string
 		if err := mapstructure.WeakDecode(raw, &n); err != nil {
-			return diags.Append(&diag.Diagnostic{
+			return append(diags, diag.Diagnostic{
 				Severity:      diag.Error,
 				Summary:       err.Error(),
 				AttributePath: path,
@@ -1993,7 +1993,7 @@ func (m schemaMap) validatePrimitive(
 		panic(fmt.Sprintf("Unknown validation type: %#v", schema.Type))
 	}
 
-	return diags.Append(schema.validateFunc(decoded, k, path))
+	return append(diags, schema.validateFunc(decoded, k, path)...)
 }
 
 func (m schemaMap) validateType(
@@ -2014,8 +2014,8 @@ func (m schemaMap) validateType(
 		// the path ie "error in TypeSet element { 'foo' : 'bar' }",
 		// but it will not be a perfect UX
 		diags = m.validateList(k, raw, schema, c, path)
-		for _, d := range diags {
-			d.AttributePath = path
+		for i := range diags {
+			diags[i].AttributePath = path
 		}
 	case TypeMap:
 		diags = m.validateMap(k, raw, schema, c, path)
@@ -2024,7 +2024,7 @@ func (m schemaMap) validateType(
 	}
 
 	if schema.Deprecated != "" {
-		diags = diags.Append(&diag.Diagnostic{
+		diags = append(diags, diag.Diagnostic{
 			Severity:      diag.Warning,
 			Summary:       "Deprecated Attribute",
 			Detail:        schema.Deprecated,
@@ -2033,7 +2033,7 @@ func (m schemaMap) validateType(
 	}
 
 	if schema.Removed != "" {
-		diags = diags.Append(&diag.Diagnostic{
+		diags = append(diags, diag.Diagnostic{
 			Severity:      diag.Error,
 			Summary:       "Removed Attribute",
 			Detail:        schema.Removed,
